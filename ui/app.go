@@ -1299,44 +1299,49 @@ func (m *Model) mainView() string {
 			b.WriteString(styleFocus.Render(" "+r.header) + "\n")
 			continue
 		}
-		val := r.val.Value
+		// plain and styled forms of the value and the source
+		pval, psrc := r.val.Value, r.val.SourceLabel()
+		val, src := pval, sourceStyle(r.val)
 		if !r.have {
-			val = styleMuted.Render("not set")
-		}
-		src := sourceStyle(r.val)
-		if !r.have {
-			src = styleMuted.Render("-")
+			pval, psrc = "not set", "-"
+			val, src = styleMuted.Render(pval), styleMuted.Render(psrc)
 		}
 		if r.val.Received != "" && r.val.Source != "received" {
+			psrc += " (received " + r.val.Received + ")"
 			src += styleMuted.Render(" (received " + r.val.Received + ")")
 		}
 		if e, ok := m.edits.Get(r.name); ok {
 			switch e.Action {
 			case props.ActSet:
-				val = styleWarn.Render("→ " + e.Value)
+				pval = "→ " + e.Value
 			case props.ActInherit:
-				val = styleWarn.Render("→ inherit")
+				pval = "→ inherit"
 			case props.ActRevert:
-				val = styleWarn.Render("→ " + r.val.Received + " (received)")
+				pval = "→ " + r.val.Received + " (received)"
 			}
 			if e.Descend {
-				val += styleWarn.Render(" ↓")
+				pval += " ↓"
 			}
-		} else if r.have {
-			val = fit(val, wVal)
+			val = styleWarn.Render(fit(pval, wVal))
+		} else {
+			val = fitAnsi(val, wVal)
 		}
 		name := r.name
 		if r.prop.Kind != props.Settable {
 			name += " ⊘"
 		}
-		line := " " + fit(name, wName) + " " + fitAnsi(val, wVal) + " " + fitAnsi(src, wSrc)
+		note := ""
 		if wNote > 0 {
-			line += " " + styleMuted.Render(fit(r.prop.Note, wNote))
+			note = " " + fit(r.prop.Note, wNote)
 		}
-		if i == m.cursor {
-			line = styleSelected.Width(m.width).Render(" " + fit(name, wName) + " " + fitAnsi(val, wVal) + " " + fitAnsi(src, wSrc) + map[bool]string{true: " " + fit(r.prop.Note, wNote), false: ""}[wNote > 0])
-		} else if r.prop.Kind != props.Settable {
-			line = " " + styleMuted.Render(fit(name, wName)) + " " + fitAnsi(val, wVal) + " " + fitAnsi(src, wSrc) + map[bool]string{true: " " + styleMuted.Render(fit(r.prop.Note, wNote)), false: ""}[wNote > 0]
+		var line string
+		switch {
+		case i == m.cursor:
+			line = styleSelected.Width(m.width).Render(" " + fit(name, wName) + " " + fit(pval, wVal) + " " + fit(psrc, wSrc) + note)
+		case r.prop.Kind != props.Settable:
+			line = " " + styleMuted.Render(fit(name, wName)) + " " + val + " " + fitAnsi(src, wSrc) + styleMuted.Render(note)
+		default:
+			line = " " + fit(name, wName) + " " + val + " " + fitAnsi(src, wSrc) + styleMuted.Render(note)
 		}
 		b.WriteString(line + "\n")
 	}
