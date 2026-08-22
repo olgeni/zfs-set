@@ -1,0 +1,364 @@
+.Dd August 23, 2026
+.Dt ZFS-SET 1
+.Os
+.Sh NAME
+.Nm zfs-set
+.Nd terminal UI and CLI for ZFS dataset properties
+.Sh SYNOPSIS
+.Nm
+.Op Ar dataset
+.Nm
+.Fl list
+.Op Fl local
+.Op Fl json
+.Op Ar dataset
+.Nm
+.Fl get Ar property Ns Op , Ns Ar ...
+.Op Fl json
+.Op Ar dataset
+.Nm
+.Fl set Ar property Ns = Ns Ar value
+.Op Fl set Ar ...
+.Op Fl r
+.Op Fl u
+.Op Fl n | Fl y | Fl check
+.Op Ar dataset
+.Nm
+.Fl inherit Ar property
+.Op Fl inherit Ar ...
+.Op Fl S
+.Op Fl r
+.Op Fl n | Fl y | Fl check
+.Op Ar dataset
+.Nm
+.Fl tree Ar property
+.Op Fl json
+.Op Ar dataset
+.Nm
+.Fl where Ar property
+.Op Fl json
+.Nm
+.Fl dump
+.Op Fl r
+.Op Ar dataset
+.Nm
+.Fl restore Ar file
+.Op Fl n | Fl y | Fl check
+.Nm
+.Fl catalogue
+.Op Fl json
+.Nm
+.Fl describe Ar property
+.Op Fl json
+.Nm
+.Fl version
+.Sh DESCRIPTION
+.Nm
+is a front-end for
+.Xr zfs-get 8 ,
+.Xr zfs-set 8
+and
+.Xr zfs-inherit 8 :
+it shows every property of a dataset with its value and where the value comes
+from, explains each one, lets you change them through a list of the allowed
+values or a validated text field, and turns the edits into the exact
+.Ql zfs set
+and
+.Ql zfs inherit
+commands, shown for review before they run.
+Pre-flight checks point out what zfs will refuse (a quota below the used
+space, a volsize that is not a multiple of volblocksize, a pool feature not
+enabled, a property the dataset type does not have) and what the change
+implies (a mount point change unmounts and remounts, canmount=off unmounts
+now, compression and checksum only affect new data, sync=disabled is unsafe,
+Linux-only properties do nothing on
+.Fx ) .
+.Pp
+Without options
+.Nm
+starts the interactive editor on
+.Ar dataset ;
+without a dataset it first shows a picker of every file system and volume,
+with the dataset of the current directory preselected.
+The options below are the non-interactive modes, for scripts and
+configuration management; there
+.Ar dataset
+defaults to the one the current directory is on.
+.Ss Model
+Every property has a value and a source:
+.Bl -tag -width "inherited from X" -compact
+.It Sy local
+set on the dataset itself with
+.Ql zfs set ;
+.It Sy received
+set by
+.Ql zfs receive ;
+a later
+.Ql zfs set
+makes the source local but keeps the received value around, and
+.Ql zfs inherit -S
+reverts to it;
+.It Sy inherited from X
+the nearest ancestor that sets it;
+.It Sy default
+nobody sets it;
+.It Sy temporary
+a mount option overrides it until the next remount;
+.It Sy -
+a statistic, or not applicable.
+.El
+.Pp
+Properties are inherited down the dataset tree when they are inheritable;
+the others
+.Po quota, reservation, canmount, the limits, volsize …
+.Pc
+apply only where they are set.
+.Ql zfs inherit
+refuses to clear those:
+.Nm
+resets them with
+.Ql zfs inherit -S ,
+which goes back to the received value if there is one and otherwise to the
+default.
+.Pp
+Read-only statistics and the properties fixed at creation
+.Po casesensitivity, normalization, utf8only, encryption, keyformat,
+pbkdf2iters, volblocksize
+.Pc
+are listed but cannot be edited.
+Per-key properties
+.Po Ar userquota@USER , groupquota@GROUP , projectquota@ID
+and the object-count variants
+.Pc
+are not in
+.Ql zfs get all :
+add them with
+.Ic a
+interactively, or name them with
+.Fl get
+and
+.Fl set .
+.Ss Interactive keys
+.Bl -tag -width "ctrl+s, F10" -compact
+.It Ic enter , e
+edit the property: set a value, inherit, or revert to the received value
+.It Ic i
+inherit: clear the value set here
+.Pq pending
+.It Ic S
+revert to the received value
+.Pq pending, Ql zfs inherit -S
+.It Ic a
+add a user property
+.Pq Ar module:name
+or a per-key one
+.Pq Ar userquota@NAME …
+.It Ic d
+drop the pending edit of the property
+.It Ic A
+apply: show the commands and the pre-flight notes, then run them
+.It Ic u , r
+undo the last edit; reload from the kernel
+.It Ic t
+the property up and down the tree: its value on every ancestor and on every
+descendant that overrides it
+.It Ic /
+filter by name or description
+.It Ic l
+only the properties set on this dataset
+.It Ic x
+show the properties that do nothing on
+.Fx
+.It Ic D
+switch dataset
+.It Ic q , esc
+back to the dataset list when the session started there, otherwise quit
+.It Ic ? , h
+help, key list
+.El
+.Pp
+In the editor
+.Ic ↑/↓
+move between the action, the values, the options and the buttons,
+.Ic space
+selects or toggles,
+.Ic enter
+on a value selects it and confirms, on the text field confirms,
+.Ic ctrl+s
+confirms and
+.Ic esc
+cancels.
+Long value lists
+.Pq compression
+open a filterable picker.
+The options are
+.Dq the children inherit it too
+.Pq Ql zfs inherit -r Ar property No on each child
+and, for mountpoint, sharenfs and sharesmb,
+.Dq change the property only
+.Pq Ql zfs set -u .
+.Sh OPTIONS
+.Bl -tag -width indent
+.It Fl list
+Print every property of the dataset in catalogue order with its value, its
+source and its meaning.
+With
+.Fl local
+only the properties set on the dataset itself
+.Pq local or received .
+.It Fl get Ar property Ns Op , Ns Ar ...
+Print the named properties with their source, received value and meaning.
+Aliases
+.Pq Ar compress , avail …
+and per-key names
+.Pq Ar userquota@bob
+are accepted.
+.It Fl set Ar property Ns = Ns Ar value
+Set the property; may be repeated.
+The value is validated against the catalogue before anything runs.
+With
+.Fl r
+the children inherit the new value too
+.Pq Ql zfs inherit -r Ar property No on each child, clearing what they had ;
+with
+.Fl u
+mountpoint, sharenfs and sharesmb are changed without mounting or sharing
+.Pq Ql zfs set -u .
+.It Fl inherit Ar property
+Clear the property on the dataset so it is inherited or reverts to the
+default; may be repeated.
+With
+.Fl S
+revert to the received value
+.Pq Ql zfs inherit -S ;
+with
+.Fl r
+on every descendant too
+.Pq Ql zfs inherit -r .
+.It Fl n
+Print the
+.Ql zfs
+commands and the pre-flight notes without running them.
+.It Fl y
+Run the commands without asking.
+.It Fl check
+Dry run that exits 3 if anything would change and 0 if nothing would.
+.It Fl tree Ar property
+Show the property on every ancestor down to the dataset, and on every
+descendant that sets it itself.
+.It Fl where Ar property
+List every file system and volume on the system that sets the property
+itself, with the value.
+.It Fl dump
+Print a JSON snapshot of the properties the dataset sets itself
+.Pq local and received ;
+with
+.Fl r
+of every descendant too.
+.It Fl restore Ar file
+Bring every dataset recorded in a
+.Fl dump
+snapshot back to it: recorded values are set where they differ, values set
+locally but not recorded are inherited.
+Datasets that no longer exist are skipped with a warning.
+.Fl n ,
+.Fl y
+and
+.Fl check
+apply.
+.It Fl catalogue
+Print every native property with its kind
+.Pq settable, read-only, creation-only
+and meaning, by group.
+.It Fl describe Ar property
+Print everything about one property: meaning, default, values with their
+meaning, pool feature, whether it is inherited.
+.It Fl json
+JSON output for
+.Fl list ,
+.Fl get ,
+.Fl tree ,
+.Fl where ,
+.Fl catalogue ,
+.Fl describe
+and
+.Fl n .
+.It Fl lenient
+Accept property names that are not in the catalogue
+.Pq a newer OpenZFS may know more .
+.It Fl version
+Print the version and exit.
+.El
+.Sh EXIT STATUS
+0 on success; 1 on error
+.Pq including a refused Ql zfs No command ;
+2 when the confirmation was declined; 3 when
+.Fl check
+found pending changes.
+.Sh EXAMPLES
+Preview the commands that switch a subtree to zstd, including the datasets
+below that had their own compression setting:
+.Bd -literal -offset indent
+$ zfs-set -set compression=zstd -r -n tank/home
+zfs set compression=zstd tank/home
+zfs inherit -r compression tank/home/alice
+zfs inherit -r compression tank/home/bob
+note: compression affects only data written from now on; existing blocks keep the old lz4
+.Ed
+.Pp
+Move a mount point without mounting anything yet, and see what it implies:
+.Bd -literal -offset indent
+# zfs-set -set mountpoint=/export/home -u -y tank/home
+.Ed
+.Pp
+Keep the properties of a subtree under configuration management:
+.Bd -literal -offset indent
+# zfs-set -dump -r tank/home > props.json
+# zfs-set -restore props.json -check || zfs-set -restore props.json -y
+.Ed
+.Pp
+Which datasets set atime themselves, and what does sync=disabled mean:
+.Bd -literal -offset indent
+$ zfs-set -where atime
+$ zfs-set -describe sync
+.Ed
+.Sh SEE ALSO
+.Xr facl 1 ,
+.Xr zfs-allow 1 ,
+.Xr zpool-set 1 ,
+.Xr zfsprops 7 ,
+.Xr zfs 8 ,
+.Xr zfs-inherit 8 ,
+.Xr zfs-set 8
+.Sh CAVEATS
+.Ql zfs set
+is not recursive; the
+.Dq children inherit
+option is
+.Ql zfs inherit -r
+on each child, which clears whatever they had set themselves.
+.Pp
+Changing
+.Sy mountpoint
+unmounts and remounts the file system and every child that inherits it; a
+busy file system makes it fail.
+.Sy canmount Ns =off
+unmounts now,
+.Sy readonly Ns =on
+applies immediately to a mounted file system.
+.Pp
+.Sy sharesmb ,
+the SELinux contexts,
+.Sy nbmand ,
+.Sy vscan ,
+.Sy mlslabel
+and
+.Sy volthreading
+do nothing on
+.Fx ;
+.Sy acltype Ns =posix
+behaves as
+.Sy off .
+The catalogue follows OpenZFS 2.4; an unknown property is still shown and
+can be set with
+.Fl lenient .
