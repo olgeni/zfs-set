@@ -35,8 +35,8 @@ return to the picker.
 Main screen: the properties grouped by subject (mounting, space & quotas,
 data layout, caching & I/O, sharing, ACLs, volumes, encryption, file names,
 statistics, user properties), each with its value, its source (`local`,
-`received`, `inherited from X`, `default`, `temporary`) and a one-line
-meaning. Read-only statistics and the properties fixed at creation are shown
+`received`, `inherited from X`, `default`, `temporary`); the meaning of the
+selected property is explained at the bottom. Read-only statistics and the properties fixed at creation are shown
 but marked `⊘`; the properties that do nothing on FreeBSD (SELinux contexts,
 `nbmand`, `sharesmb`, `vscan`, `mlslabel`, `volthreading`) are hidden until
 `x`. Pending edits show as `→ value` until you apply.

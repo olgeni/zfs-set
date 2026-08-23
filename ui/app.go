@@ -300,7 +300,7 @@ func (m *Model) rebuildRows() {
 	m.clampCursor()
 }
 
-func (m *Model) listHeight() int { return max(3, m.height-9) }
+func (m *Model) listHeight() int { return max(3, m.height-7) }
 
 func (m *Model) clampCursor() {
 	if m.cursor >= len(m.rows) {
@@ -1273,24 +1273,16 @@ func (m *Model) mainView() string {
 		hdr += "   " + strings.Join(flags, "  ")
 	}
 	b.WriteString(hdr + "\n")
-	wName, wVal, wSrc := 24, 12, 22
+	wName := 24
 	for _, r := range m.rows {
-		if r.header == "" && r.have {
-			wVal = max(wVal, min(30, len([]rune(r.val.Value))+2))
-		}
-		if e, ok := m.edits.Get(r.name); ok && e.Action == props.ActSet {
-			wVal = max(wVal, min(30, len([]rune(e.Value))+4))
+		if r.header == "" {
+			wName = max(wName, len([]rune(r.name))+2)
 		}
 	}
-	wNote := m.width - wName - wVal - wSrc - 5
-	if wNote < 16 {
-		wNote = 0
-		wVal = max(12, m.width-wName-wSrc-4)
-	}
+	wName = min(wName, 40)
+	wSrc := 24
+	wVal := min(48, max(12, m.width-wName-wSrc-4))
 	head := " " + fit("Property", wName) + " " + fit("Value", wVal) + " " + fit("Source", wSrc)
-	if wNote > 0 {
-		head += " " + fit("Meaning", wNote)
-	}
 	b.WriteString(styleHeader.Render(head) + "\n")
 	h := m.listHeight()
 	for i := m.offset; i < len(m.rows) && i < m.offset+h; i++ {
@@ -1330,18 +1322,14 @@ func (m *Model) mainView() string {
 		if r.prop.Kind != props.Settable {
 			name += " ⊘"
 		}
-		note := ""
-		if wNote > 0 {
-			note = " " + fit(r.prop.Note, wNote)
-		}
 		var line string
 		switch {
 		case i == m.cursor:
-			line = styleSelected.Width(m.width).Render(" " + fit(name, wName) + " " + fit(pval, wVal) + " " + fit(psrc, wSrc) + note)
+			line = styleSelected.Width(m.width).Render(" " + fit(name, wName) + " " + fit(pval, wVal) + " " + fit(psrc, wSrc))
 		case r.prop.Kind != props.Settable:
-			line = " " + styleMuted.Render(fit(name, wName)) + " " + val + " " + fitAnsi(src, wSrc) + styleMuted.Render(note)
+			line = " " + styleMuted.Render(fit(name, wName)) + " " + val + " " + fitAnsi(src, wSrc)
 		default:
-			line = " " + fit(name, wName) + " " + val + " " + fitAnsi(src, wSrc) + styleMuted.Render(note)
+			line = " " + fit(name, wName) + " " + val + " " + fitAnsi(src, wSrc)
 		}
 		b.WriteString(line + "\n")
 	}
@@ -1389,9 +1377,9 @@ func (m *Model) mainView() string {
 		status = styleOK.Render(status)
 	}
 	if status != "" {
-		b.WriteString(" " + status + "\n")
+		b.WriteString(" " + status)
 	} else {
-		b.WriteString(helpLine("enter", "edit", "i", "inherit", "S", "received", "a", "add", "A", "apply", "u", "undo", "t", "tree", "/", "filter", "l", "local", "D", "datasets", "?", "help", "q/esc", m.backLabel()) + "\n")
+		b.WriteString(helpLine("enter", "edit", "i", "inherit", "S", "received", "a", "add", "A", "apply", "u", "undo", "t", "tree", "/", "filter", "l", "local", "D", "datasets", "?", "help", "q/esc", m.backLabel()))
 	}
 	return b.String()
 }
