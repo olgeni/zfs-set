@@ -12,7 +12,7 @@ import (
 	"github.com/olgeni/zfs-set/ui"
 )
 
-const version = "1.0.0"
+const version = "1.0.1"
 
 // multi collects a repeatable flag.
 type multi []string
