@@ -74,10 +74,12 @@ is on. Exit status: 0, 1 error, 2 declined, 3 changes pending (-check).
 	}
 	dataset := flag.Arg(0)
 	if dataset != "" {
-		if _, err := props.Info(dataset); err != nil {
+		ds, err := resolveDataset(dataset)
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "zfs-set:", err)
 			os.Exit(1)
 		}
+		dataset = ds
 	}
 	cwdDS, _ := cwdDataset()
 	if o.nonInteractive() {
@@ -94,6 +96,32 @@ is on. Exit status: 0, 1 error, 2 declined, 3 changes pending (-check).
 		fmt.Fprintln(os.Stderr, "zfs-set:", err)
 		os.Exit(1)
 	}
+}
+
+// resolveDataset turns the command-line argument, a dataset name or a path
+// on a ZFS file system, into the dataset's name. zfs(8) itself takes a path
+// only when it contains a slash ("." and "dir" are read as dataset names:
+// "self reference", "dataset does not exist"), so paths are resolved here
+// with statfs; a path zfs does accept is normalised to the dataset name too.
+func resolveDataset(arg string) (string, error) {
+	d, err := props.Info(arg)
+	if err == nil {
+		return d.Name, nil
+	}
+	if _, serr := os.Stat(arg); serr != nil {
+		return "", err
+	}
+	ds, perr := props.DatasetForPath(arg)
+	if perr != nil {
+		return "", perr
+	}
+	if ds == "" {
+		return "", fmt.Errorf("%s: not on a ZFS file system", arg)
+	}
+	if d, err = props.Info(ds); err != nil {
+		return "", err
+	}
+	return d.Name, nil
 }
 
 func cwdDataset() (string, error) {
