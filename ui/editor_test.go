@@ -26,6 +26,10 @@ func kmsg(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyCtrlS}
 	case "tab":
 		return tea.KeyMsg{Type: tea.KeyTab}
+	case "left":
+		return tea.KeyMsg{Type: tea.KeyLeft}
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -63,20 +67,42 @@ func TestEditorEnum(t *testing.T) {
 	}
 }
 
+// TestEditorEditInPlace: the pre-filled value can be edited, not only
+// replaced: an arrow or a backspace keeps it and works inside it.
+func TestEditorEditInPlace(t *testing.T) {
+	l := fakeListing()
+	v, _ := l.Get("mountpoint")
+	p, _ := props.Lookup("mountpoint")
+	ed := newEditor(p, "mountpoint", "tank/home", v, true, props.Edit{}, false, 2, 100, 30)
+	if !ed.onInput() || !ed.val.Pristine() {
+		t.Fatalf("start: %q on %v", ed.val.Value(), ed.row())
+	}
+	start := ed.val.Value()
+	ed.Update(kmsg("backspace"))
+	if ed.val.Pristine() || ed.val.Value() != start[:len(start)-1] {
+		t.Fatalf("after backspace: %q", ed.val.Value())
+	}
+	ed.Update(kmsg("left"))
+	ed.Update(kmsg("X"))
+	if want := start[:len(start)-2] + "X" + start[len(start)-2:len(start)-1]; ed.val.Value() != want {
+		t.Fatalf("after left X: %q, want %q", ed.val.Value(), want)
+	}
+}
+
 // TestEditorInput: a typed value replaces the pre-filled one and is validated.
 func TestEditorInput(t *testing.T) {
 	l := fakeListing()
 	v, _ := l.Get("quota")
 	p, _ := props.Lookup("quota")
 	ed := newEditor(p, "quota", "tank/home", v, true, props.Edit{}, false, 2, 100, 30)
-	if !ed.onInput() || ed.input != "500G" || !ed.pristine {
-		t.Fatalf("start: input %q pristine %v on %v", ed.input, ed.pristine, ed.row())
+	if !ed.onInput() || ed.val.Value() != "500G" || !ed.val.Pristine() {
+		t.Fatalf("start: input %q pristine %v on %v", ed.val.Value(), ed.val.Pristine(), ed.row())
 	}
 	ed.Update(kmsg("1"))
 	ed.Update(kmsg("0"))
 	ed.Update(kmsg("X"))
-	if ed.input != "10X" {
-		t.Fatalf("typed %q", ed.input)
+	if ed.val.Value() != "10X" {
+		t.Fatalf("typed %q", ed.val.Value())
 	}
 	if a := ed.Update(kmsg("enter")); a != actNone || ed.errMsg == "" {
 		t.Fatalf("bad value accepted: %v %q", a, ed.errMsg)
@@ -149,14 +175,14 @@ func TestMainRows(t *testing.T) {
 	if !found {
 		t.Error("x did not show nbmand")
 	}
-	m.filter = "acl"
+	m.filter.Type("acl")
 	m.rebuildRows()
 	for _, r := range m.rows {
 		if r.header == "" && r.name != "acltype" && r.name != "aclmode" && r.name != "aclinherit" {
 			t.Errorf("filter acl shows %s", r.name)
 		}
 	}
-	m.filter = ""
+	m.filter.Type("")
 	m.onlyLocal = true
 	m.rebuildRows()
 	for _, r := range m.rows {

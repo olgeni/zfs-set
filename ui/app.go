@@ -88,7 +88,7 @@ type Model struct {
 	rows      []uiRow
 	cursor    int
 	offset    int
-	filter    string
+	filter    editLine
 	typing    bool
 	showLinux bool
 	onlyLocal bool
@@ -127,6 +127,8 @@ type Model struct {
 // New creates the model; dataset "" starts on the picker with pickDef selected.
 func New(dataset, pickDef string) *Model {
 	m := &Model{dataset: dataset, pickDef: pickDef, width: 80, height: 24}
+	m.filter = newEditLine("")
+	m.filter.Focus()
 	m.vp = viewport.New(80, 20)
 	// ←/→ scroll the plan and the text screens sideways when a line is
 	// wider than the terminal
@@ -198,7 +200,7 @@ func (m *Model) rebuildRows() {
 		return
 	}
 	l := m.listing
-	f := strings.ToLower(strings.TrimSpace(m.filter))
+	f := strings.ToLower(strings.TrimSpace(m.filter.Value()))
 	match := func(name string, p *props.Prop) bool {
 		if f != "" && !strings.Contains(strings.ToLower(name), f) && (p == nil || !strings.Contains(strings.ToLower(p.Note), f)) {
 			return false
@@ -715,22 +717,18 @@ func (m *Model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.typing {
 		switch k.String() {
 		case "esc":
-			m.filter, m.typing = "", false
+			m.filter.Set("")
+			m.typing = false
 			m.rebuildRows()
 		case "enter", "up", "down":
 			m.typing = false
 			if k.String() != "enter" {
 				return m.updateMain(msg)
 			}
-		case "backspace":
-			if m.filter != "" {
-				r := []rune(m.filter)
-				m.filter = string(r[:len(r)-1])
-				m.rebuildRows()
-			}
 		default:
-			if k.Type == tea.KeyRunes || k.Type == tea.KeySpace {
-				m.filter += k.String()
+			// every other key edits the filter, inside it as well as
+			// at its end
+			if m.filter.Update(k) {
 				m.cursor = 0
 				m.rebuildRows()
 				m.move(0)
@@ -740,7 +738,8 @@ func (m *Model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if k.Type == tea.KeyRunes && len(k.Runes) > 1 && k.Runes[0] == '/' {
 		// a pasted "/text": filter by it
-		m.filter, m.typing = string(k.Runes[1:]), true
+		m.filter.Type(string(k.Runes[1:]))
+		m.typing = true
 		m.cursor = 0
 		m.rebuildRows()
 		m.move(0)
@@ -748,8 +747,8 @@ func (m *Model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch k.String() {
 	case "q", "esc", "backspace":
-		if m.filter != "" {
-			m.filter = ""
+		if !m.filter.Empty() {
+			m.filter.Set("")
 			m.rebuildRows()
 			return m, nil
 		}
@@ -1293,12 +1292,14 @@ func (m *Model) mainView() string {
 		hdr += styleWarn.Render(fmt.Sprintf("  ● %d pending edit(s) — press A to apply", len(m.edits)))
 	}
 	var flags []string
-	if m.filter != "" || m.typing {
-		f := "filter: /" + m.filter
+	if !m.filter.Empty() || m.typing {
+		f := styleFocus.Render("filter: /")
 		if m.typing {
-			f += "▏"
+			f += m.filter.View()
+		} else {
+			f += styleFocus.Render(m.filter.Value())
 		}
-		flags = append(flags, styleFocus.Render(f))
+		flags = append(flags, f)
 	}
 	if m.onlyLocal {
 		flags = append(flags, styleFocus.Render("only set here (l)"))

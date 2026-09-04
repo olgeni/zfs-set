@@ -55,10 +55,9 @@ type editor struct {
 	rows      []edRow
 	cursor    int
 	offset    int
-	input     string
-	pristine  bool // the input still holds the pre-filled current value: typing replaces it
-	choiceIdx int  // selected choice, -1 none
-	btn       int  // focused button: 0 OK, 1 Cancel
+	val       editLine
+	choiceIdx int // selected choice, -1 none
+	btn       int // focused button: 0 OK, 1 Cancel
 	errMsg    string
 	width     int
 	height    int
@@ -66,6 +65,7 @@ type editor struct {
 
 func newEditor(p *props.Prop, name, dataset string, cur props.Value, have bool, pending props.Edit, hasPending bool, nChild, w, h int) *editor {
 	e := &editor{prop: p, name: name, dataset: dataset, cur: cur, have: have, nChild: nChild, width: w, height: h, choiceIdx: -1}
+	e.val = newEditLine("")
 	e.choices = p.Choices()
 	e.actions = []props.Action{props.ActSet}
 	if p.Kind == props.Settable {
@@ -93,15 +93,14 @@ func newEditor(p *props.Prop, name, dataset string, cur props.Value, have bool, 
 		}
 		if e.choiceIdx < 0 && start != "" && !p.FreeForm() {
 			// a value outside the list (e.g. sharenfs options): keep it as typed text
-			e.input = start
+			e.val.Set(start)
 		}
 	} else {
-		e.input = start
+		e.val.Set(start)
 	}
 	if p.FreeForm() && p.Type != props.TBool && p.Type != props.TEnum && p.Type != props.TCompress && p.Type != props.TDedup && p.Type != props.TVersion {
-		e.input = start
+		e.val.Set(start)
 	}
-	e.pristine = e.input != ""
 	e.rebuild()
 	// cursor on the current choice when editing an enum, else on the first value row
 	for i, r := range e.rows {
@@ -111,6 +110,7 @@ func newEditor(p *props.Prop, name, dataset string, cur props.Value, have bool, 
 		}
 	}
 	e.clamp()
+	e.syncFocus()
 	return e
 }
 
@@ -128,6 +128,50 @@ func (e *editor) canDescend() bool {
 
 func (e *editor) canNoMount() bool {
 	return e.edit.Action == props.ActSet && (e.name == "mountpoint" || e.name == "sharenfs" || e.name == "sharesmb")
+}
+
+// inputNote tells that what is typed replaces the pre-filled value, and
+// minInput is the room the value keeps on its line whatever the hint.
+const (
+	inputNote = " (type to replace, ← to edit)"
+	minInput  = 12
+)
+
+// inputLine is the value row: its label, the note, the hint and the room
+// left for the value itself (a longer one scrolls inside that room).
+func (e *editor) inputLine() (label, note, hint string, w int) {
+	label = "     Value: "
+	if e.inline() {
+		label = "     or type: "
+	}
+	if e.onInput() && e.val.Pristine() {
+		note = inputNote
+	}
+	room := e.width - len([]rune(label)) - len([]rune(note)) - 1
+	h := e.prop.Hint()
+	if note != "" {
+		// the pre-filled value comes first, the hint takes what is left
+		w = max(minInput, min(len([]rune(e.val.Value())), room))
+		if h != "" && room-w >= 13 {
+			hint = "   " + cut(h, room-w-3)
+		}
+		return label, note, hint, w
+	}
+	// while it is edited the field keeps its width: the hint is cut first
+	if h != "" && room-minInput >= 13 {
+		hint = "   " + cut(h, room-minInput-3)
+		room -= len([]rune(hint))
+	}
+	return label, note, hint, max(minInput, room)
+}
+
+// syncFocus keeps the value focused only while the cursor is on it.
+func (e *editor) syncFocus() {
+	if e.onInput() && e.edit.Action == props.ActSet {
+		e.val.Focus()
+		return
+	}
+	e.val.Blur()
 }
 
 // inline reports whether the value list is shown as radio rows.
@@ -216,11 +260,11 @@ func (e *editor) SetValue(v string) {
 // value is the value the editor would set: the radio choice, else the text.
 func (e *editor) value() string {
 	if e.inline() || e.choices != nil {
-		if e.choiceIdx >= 0 && e.choiceIdx < len(e.choices) && (e.input == "" || !e.inline()) {
+		if e.choiceIdx >= 0 && e.choiceIdx < len(e.choices) && (e.val.Empty() || !e.inline()) {
 			return e.choices[e.choiceIdx].Value
 		}
 	}
-	return strings.TrimSpace(e.input)
+	return strings.TrimSpace(e.val.Value())
 }
 
 // Result is the edit to record (valid only after actOK).
@@ -257,8 +301,8 @@ func (e *editor) ok() edAction {
 			e.errMsg = err.Error()
 			return actNone
 		}
-		if e.choices == nil || !e.inline() && e.choiceIdx < 0 || e.input != "" && e.inline() {
-			e.input = nv
+		if e.choices == nil || !e.inline() && e.choiceIdx < 0 || !e.val.Empty() && e.inline() {
+			e.val.Set(nv)
 		}
 	}
 	return actOK
@@ -266,54 +310,40 @@ func (e *editor) ok() edAction {
 
 // Update handles a key.
 func (e *editor) Update(msg tea.Msg) edAction {
+	a := e.update(msg)
+	e.syncFocus()
+	return a
+}
+
+// edKeys are the keys the editor keeps for itself while the cursor is on
+// the value: everything else edits the text.
+var edKeys = map[string]bool{
+	"esc": true, "ctrl+c": true, "enter": true, "ctrl+s": true, "f10": true,
+	"up": true, "down": true, "ctrl+p": true, "ctrl+n": true, "tab": true,
+	"pgup": true, "pgdown": true,
+}
+
+func (e *editor) update(msg tea.Msg) edAction {
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return actNone
 	}
 	key := k.String()
-	if e.onInput() {
-		switch key {
-		case "backspace":
-			if e.pristine {
-				e.input, e.pristine = "", false
-			} else if e.input != "" {
-				r := []rune(e.input)
-				e.input = string(r[:len(r)-1])
-			}
-			e.errMsg = ""
-			e.clamp()
-			return actNone
-		case "ctrl+u":
-			e.input = ""
-			return actNone
-		case "ctrl+w":
-			e.input = strings.TrimRight(e.input, " ")
-			if i := strings.LastIndexByte(e.input, ' '); i >= 0 {
-				e.input = e.input[:i+1]
-			} else {
-				e.input = ""
-			}
-			return actNone
+	if e.onInput() && !edKeys[key] {
+		_, _, _, w := e.inputLine()
+		e.val.SetWidth(w)
+		e.val.Update(k)
+		e.errMsg = ""
+		if e.inline() && !e.val.Empty() {
+			e.choiceIdx = -1 // typed text wins over the radio
 		}
-		if k.Type == tea.KeyRunes || k.Type == tea.KeySpace {
-			if e.pristine {
-				e.input, e.pristine = "", false
-			}
-			e.input += key
-			e.errMsg = ""
-			if e.inline() {
-				e.choiceIdx = -1 // typed text wins over the radio
-			}
-			return actNone
-		}
+		return actNone
 	}
 	switch key {
 	case "esc", "ctrl+c":
 		return actCancel
 	case "q":
-		if !e.onInput() {
-			return actCancel
-		}
+		return actCancel
 	case "ctrl+s", "f10":
 		return e.ok()
 	case "up", "ctrl+p":
@@ -382,7 +412,7 @@ func (e *editor) activate(enter bool) edAction {
 		}
 	case erChoice:
 		e.choiceIdx = r.idx
-		e.input = ""
+		e.val.Set("")
 		if enter {
 			return e.ok()
 		}
@@ -507,7 +537,7 @@ func (e *editor) View() string {
 			line = " " + mark + " " + txt
 		case erChoice:
 			mark := "( )"
-			if e.choiceIdx == r.idx && e.input == "" {
+			if e.choiceIdx == r.idx && e.val.Empty() {
 				mark = "(•)"
 			}
 			o := e.choices[r.idx]
@@ -527,24 +557,9 @@ func (e *editor) View() string {
 			}
 			line = "     Value: " + styleValue.Render(v) + styleMuted.Render("   enter to choose from the list")
 		case erInput:
-			label := "     Value: "
-			if e.inline() {
-				label = "     or type: "
-			}
-			if e.pristine {
-				line = label + styleMuted.Render(e.input)
-			} else {
-				line = label + styleFocus.Render(e.input)
-			}
-			if i == e.cursor {
-				line += styleFocus.Render("▏")
-			}
-			if e.pristine && i == e.cursor {
-				line += styleMuted.Render(" (type to replace)")
-			}
-			if hint := e.prop.Hint(); hint != "" {
-				line += styleMuted.Render("   " + hint)
-			}
+			label, note, hint, w := e.inputLine()
+			e.val.SetWidth(w)
+			line = label + e.val.View() + styleMuted.Render(note) + styleMuted.Render(hint)
 		case erDescend:
 			mark := "[ ]"
 			if e.edit.Descend {
