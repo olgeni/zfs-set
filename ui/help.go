@@ -74,7 +74,7 @@ var keymap = [][2]string{
 	{"u", "undo the last edit"},
 	{"r", "reload from the kernel (discarding edits)"},
 	{"t", "the property up and down the tree (ancestors, overriding descendants)"},
-	{"/", "filter by name or description (esc clears)"},
+	{"/", "filter by name or description (arrows edit it, esc clears)"},
 	{"l", "only the properties set here (local/received)"},
 	{"x", "show the properties that do nothing on FreeBSD"},
 	{"D", "switch dataset"},
